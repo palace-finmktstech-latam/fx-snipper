@@ -11,6 +11,11 @@ import base64
 import io
 
 from app.config import settings
+from app.main import logger
+from core_logging.client import EventType, LogLevel
+
+# Get parameters from environment variables
+my_entity = os.environ.get('MY_ENTITY')
 
 class AIService:
     def __init__(self):
@@ -50,13 +55,35 @@ class AIService:
         EXTRACTION_PROMPT = "Extract the text from this image."
 
         if not self.openai_client:
+            logger.error(
+                "OpenAI API key is not set",
+                event_type=EventType.SYSTEM_EVENT,
+                user_id=self.user_name,
+                tags=["api", "extract", "error", "config"],
+                entity=my_entity
+            )
             raise ValueError("OpenAI API key is not set")
 
         try:
+            logger.info(
+                "Starting text extraction from image",
+                event_type=EventType.SYSTEM_EVENT,
+                user_id=self.user_name,
+                tags=["api", "extract", "image"],
+                entity=my_entity
+            )
+            
             # If image_input is already base64, use it directly
             if isinstance(image_input, str) and image_input.startswith('iVBOR'):
                 base64_image = image_input
             else:
+                logger.error(
+                    "Invalid image format provided",
+                    event_type=EventType.SYSTEM_EVENT,
+                    user_id=self.user_name,
+                    entity=my_entity,
+                    tags=["api", "extract", "error", "format"]
+                )
                 raise ValueError("Invalid image input format")
 
             response = self.openai_client.chat.completions.create(
@@ -85,15 +112,38 @@ class AIService:
                 max_tokens=1000,
                 temperature=0
             )
+            
+            logger.info(
+                "Successfully extracted text from image",
+                event_type=EventType.SYSTEM_EVENT,
+                user_id=self.user_name,
+                entity=my_entity,
+                data={"text_length": len(response.choices[0].message.content)},
+                tags=["api", "extract", "success"]
+            )
 
             return response.choices[0].message.content
 
         except Exception as e:
+            logger.log_exception(
+                e,
+                message="Failed to extract text from image",
+                user_id=self.user_name,
+                entity=my_entity,
+                level=LogLevel.ERROR,
+                tags=["api", "extract", "error"]
+            )
             raise Exception(f"Error extracting text from image: {str(e)}")
     
     def get_extraction_prompt(self, text_to_process: str) -> str:
         """Generate the extraction prompt with current user information."""
         if not self.user_name or not self.user_entity:
+            logger.error(
+                "User name and entity must be set before processing text",
+                event_type=EventType.SYSTEM_EVENT,
+                tags=["api", "prompt", "error", "config"],
+                entity=my_entity
+            )
             raise ValueError("User name and entity must be set before processing text")
 
         system_date = datetime.today().strftime('%d-%m-%Y')
@@ -248,8 +298,24 @@ class AIService:
         EXTRACTION_PROMPT = self.get_extraction_prompt(extracted_text)
 
         try:
+            logger.info(
+                f"Processing text with {ai_provider} AI",
+                event_type=EventType.TRANSACTION,
+                user_id=self.user_name,
+                entity=my_entity,
+                data={"text_length": len(extracted_text)},
+                tags=["ai", "process", ai_provider.lower()]
+            )
+            
             if ai_provider == "OpenAI":
                 if not self.openai_client:
+                    logger.error(
+                        "OpenAI API key is not set",
+                        event_type=EventType.SYSTEM_EVENT,
+                        user_id=self.user_name,
+                        entity=my_entity,
+                        tags=["ai", "process", "error", "config"]
+                    )
                     raise ValueError("OpenAI API key is not set.")
 
                 response = self.openai_client.chat.completions.create(
@@ -267,11 +333,18 @@ class AIService:
                     max_tokens=1000,
                     temperature=0
                 )
-
-                return response.choices[0].message.content
+                
+                result = response.choices[0].message.content
 
             elif ai_provider == "Anthropic":
                 if not self.anthropic_client:
+                    logger.error(
+                        "Anthropic API key is not set",
+                        event_type=EventType.SYSTEM_EVENT,
+                        user_id=self.user_name,
+                        entity=my_entity,
+                        tags=["ai", "process", "error", "config"]
+                    )
                     raise ValueError("Anthropic API key is not set.")
                 
                 response = self.anthropic_client.messages.create(
@@ -285,10 +358,17 @@ class AIService:
                     temperature=0
                 )
                 
-                return response.content[0].text
+                result = response.content[0].text
             
             elif ai_provider == "Google":
                 if not self.google_api_key:
+                    logger.error(
+                        "Google API key is not set",
+                        event_type=EventType.SYSTEM_EVENT,
+                        user_id=self.user_name,
+                        entity=my_entity,
+                        tags=["ai", "process", "error", "config"]
+                    )
                     raise ValueError("Google API key is not set")
                 
                 try:
@@ -307,13 +387,47 @@ class AIService:
                     )
                     
                     response = model.generate_content(EXTRACTION_PROMPT)
-                    return response.text
+                    result = response.text
                     
                 except Exception as e:
+                    logger.log_exception(
+                        e,
+                        message=f"Error with Google API during processing",
+                        user_id=self.user_name,
+                        entity=my_,
+                        level=LogLevel.ERROR,
+                        tags=["ai", "process", "error", "google"]
+                    )
                     raise Exception(f"Error with Google API: {str(e)}")
 
             else:
+                logger.error(
+                    f"Invalid AI provider specified: {ai_provider}",
+                    event_type=EventType.SYSTEM_EVENT,
+                    user_id=self.user_name,
+                    entity=my_entity,
+                    tags=["ai", "process", "error", "config"]
+                )
                 raise ValueError("Invalid AIProvider specified. Use 'OpenAI', 'Anthropic' or 'Google'.")
+            
+            logger.info(
+                f"Successfully processed text with {ai_provider}",
+                event_type=EventType.TRANSACTION,
+                user_id=self.user_name,
+                entity=my_entity,
+                data={"result_length": len(result)},
+                tags=["ai", "process", "success", ai_provider.lower()]
+            )
+            
+            return result
 
         except Exception as e:
+            logger.log_exception(
+                e,
+                message=f"Error processing text with {ai_provider} API",
+                user_id=self.user_name,
+                entity=my_entity,
+                level=LogLevel.ERROR,
+                tags=["ai", "process", "error"]
+            )
             raise Exception(f"Error processing text with {ai_provider} API: {str(e)}")
