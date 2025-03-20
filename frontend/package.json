@@ -1,0 +1,36 @@
+{
+  "name": "swap-snipper",
+  "version": "1.0.0",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "npm run build && electron .",
+    "build": "webpack --config webpack.config.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@ag-grid-community/client-side-row-model": "^32.3.2",
+    "@ag-grid-community/core": "^32.3.2",
+    "@ag-grid-community/react": "^32.3.2",
+    "@ag-grid-community/styles": "^32.3.3",
+    "@kenjiuno/msgreader": "^1.22.0",
+    "electron": "^33.0.2",
+    "lucide-react": "^0.474.0",
+    "papaparse": "^5.5.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "shadcn-ui": "^0.9.4"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.0",
+    "@babel/preset-env": "^7.26.0",
+    "@babel/preset-react": "^7.25.9",
+    "babel-loader": "^9.2.1",
+    "css-loader": "^7.1.2",
+    "style-loader": "^4.0.0",
+    "webpack": "^5.96.1",
+    "webpack-cli": "^5.1.4"
+  }
+}
