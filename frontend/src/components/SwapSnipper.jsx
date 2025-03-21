@@ -241,6 +241,18 @@ const SwapSnipper = () => {
     fontSize: '14px'
   };
 
+  // Helper to format table cells based on leg type and content
+  const formatTableCell = (value, cellType, isFloatingLeg) => {
+    if (cellType === 'interest' && isFloatingLeg) {
+      return value; // Will show "TBD" from backend for floating legs
+    } else if (cellType === 'rate') {
+      return isNaN(value) ? value : `${value}%`;
+    } else if (typeof value === 'number') {
+      return value.toLocaleString();
+    }
+    return value;
+  };
+
   return (
     <div
       style={{
@@ -532,70 +544,74 @@ const SwapSnipper = () => {
                     label: getCashflowTables().myEntityLabel, 
                     flows: getCashflowTables().myEntityFlows,
                     isExpanded: isPayingTableExpanded,
-                    setExpanded: setIsPayingTableExpanded
+                    setExpanded: setIsPayingTableExpanded,
+                    isFloating: tradeInfo.legs.find(leg => leg.payer === myEntity)?.isFloating || false
                   },
                   { 
                     label: getCashflowTables().otherEntityLabel, 
                     flows: getCashflowTables().otherEntityFlows,
                     isExpanded: isReceivingTableExpanded,
-                    setExpanded: setIsReceivingTableExpanded
+                    setExpanded: setIsReceivingTableExpanded,
+                    isFloating: tradeInfo.legs.find(leg => leg.payer !== myEntity)?.isFloating || false
                   }
-                ].map((tableData, index) => (
-                  <div key={index} style={{ marginTop: '20px' }}>
-                    <div style={headerStyle}>
-                      <h4 style={{ margin: 0 }}>{tableData.label}</h4>
-                      <button 
-                        onClick={() => tableData.setExpanded(!tableData.isExpanded)}
-                        style={toggleButtonStyle}
-                      >
-                        {tableData.isExpanded ? '−' : '+'}
-                      </button>
-                    </div>
-                    {tableData.isExpanded && (
-                      <>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '8px', marginBottom: '10px' }}>
-                          <thead>
-                            <tr style={{ borderBottom: '1px solid #00e7ff' }}>
-                              {['Start Date', 'End Date', 'Rate', 'Spread', 'Remaining K', 'Amortization', 'Interest'].map(
-                                (header, idx) => (
-                                  <th key={idx} style={{ textAlign: 'left', padding: '3px' }}>
-                                    {header}
-                                  </th>
-                                )
-                              )}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {tableData.flows.map((flow, idx) => (
-                              <tr key={idx} style={{ borderBottom: '1px solid #333' }}>
-                                <td style={{ padding: '3px' }}>{flow.startDate}</td>
-                                <td style={{ padding: '3px' }}>{flow.endDate}</td>
-                                <td style={{ padding: '3px' }}>{flow.rate}</td>
-                                <td style={{ padding: '3px' }}>{flow.spread}</td>
-                                <td style={{ padding: '3px' }}>{flow.remainingCapital.toLocaleString()}</td>
-                                <td style={{ padding: '3px' }}>{flow.amortization.toLocaleString()}</td>
-                                <td style={{ padding: '3px' }}>{typeof flow.interest === 'number' ? flow.interest.toLocaleString() : flow.interest}</td>
+                ].map((tableData, index) => {
+                  return (
+                    <div key={index} style={{ marginTop: '20px' }}>
+                      <div style={headerStyle}>
+                        <h4 style={{ margin: 0 }}>{tableData.label}</h4>
+                        <button 
+                          onClick={() => tableData.setExpanded(!tableData.isExpanded)}
+                          style={toggleButtonStyle}
+                        >
+                          {tableData.isExpanded ? '−' : '+'}
+                        </button>
+                      </div>
+                      {tableData.isExpanded && (
+                        <>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '8px', marginBottom: '10px' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '1px solid #00e7ff' }}>
+                                {['Start Date', 'End Date', 'Rate', 'Spread', 'Remaining K', 'Amortization', 'Interest'].map(
+                                  (header, idx) => (
+                                    <th key={idx} style={{ textAlign: 'left', padding: '3px' }}>
+                                      {header}
+                                    </th>
+                                  )
+                                )}
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        <div style={{ fontSize: '8px', color: '#888', marginBottom: '20px' }}>
-                          {index === 0 ? (
-                            <>
-                              Business Day Convention: {tradeInfo.tradeInfo.leg1BusinessDayConvention} • 
-                              Day Count Convention: {tradeInfo.tradeInfo.leg1DayCountConvention}
-                            </>
-                          ) : (
-                            <>
-                              Business Day Convention: {tradeInfo.tradeInfo.leg2BusinessDayConvention} • 
-                              Day Count Convention: {tradeInfo.tradeInfo.leg2DayCountConvention}
-                            </>
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ))}
+                            </thead>
+                            <tbody>
+                              {tableData.flows.map((flow, idx) => (
+                                <tr key={idx} style={{ borderBottom: '1px solid #333' }}>
+                                  <td style={{ padding: '3px' }}>{flow.startDate}</td>
+                                  <td style={{ padding: '3px' }}>{flow.endDate}</td>
+                                  <td style={{ padding: '3px' }}>{formatTableCell(flow.rate, 'rate', tableData.isFloating)}</td>
+                                  <td style={{ padding: '3px' }}>{flow.spread}</td>
+                                  <td style={{ padding: '3px' }}>{flow.remainingCapital.toLocaleString()}</td>
+                                  <td style={{ padding: '3px' }}>{flow.amortization.toLocaleString()}</td>
+                                  <td style={{ padding: '3px' }}>{formatTableCell(flow.interest, 'interest', tableData.isFloating)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          <div style={{ fontSize: '8px', color: '#888', marginBottom: '20px' }}>
+                            {index === 0 ? (
+                              <>
+                                Business Day Convention: {tradeInfo.tradeInfo.leg1BusinessDayConvention} • 
+                                Day Count Convention: {tradeInfo.tradeInfo.leg1DayCountConvention}
+                              </>
+                            ) : (
+                              <>
+                                Business Day Convention: {tradeInfo.tradeInfo.leg2BusinessDayConvention} • 
+                                Day Count Convention: {tradeInfo.tradeInfo.leg2DayCountConvention}
+                              </>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
               </>
             )}
           </>

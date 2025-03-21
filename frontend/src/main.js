@@ -43,7 +43,7 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, '../public/index.html'));
-  //mainWindow.webContents.openDevTools();
+  mainWindow.webContents.openDevTools();
   mainWindow.webContents.setZoomFactor(1);
 }
 

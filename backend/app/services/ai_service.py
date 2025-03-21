@@ -174,7 +174,7 @@ class AIService:
         If the first price (bid) is the accepted one, then the price maker is paying the fixed rate and the price taker is paying the floating rate.
         If the second price (offer) is the accepted one, then the price taker is paying the fixed rate and the price maker is paying the floating rate.
 
-        Tell me who (person and company name) is paying the fixed rate (and what it is) and who (person and company name) is paying the floating rate.
+        Tell me who (person and company name) is paying the fixed rate (and what it is) and who (person and company name) is paying the floating rate. The fixed rate should be stored as if it is a percentage, e.g. 1.25, but do not include the percent sign.
         
         Prices quoted and accepted at the end of the chat are far more likely to be correct than those at the beginning.
 
@@ -245,7 +245,7 @@ class AIService:
                     "Leg Type": "String (Fixed or Floating)",
                     "Name": "String",
                     "Company": "String",
-                    "Rate": "String",
+                    "Rate": "String (If this is the fixed leg, store as the percentage, without the percent sign. If this is the floating leg, store the floating rate reference string).",
                     "Leg Currency": "ISO Code",
                     "Notional Amount": "Numeric Value",
                     "Date Basis": "String",
@@ -258,7 +258,7 @@ class AIService:
                     "Leg Type": "String (Fixed or Floating)",
                     "Name": "String",
                     "Company": "String",
-                    "Rate": "String",
+                    "Rate": "String (If this is the fixed leg, store as the percentage, without the percent sign. If this is the floating leg, store the floating rate reference string).",
                     "Leg Currency": "ISO Code",
                     "Notional Amount": "Numeric Value",
                     "Date Basis": "String",
@@ -415,7 +415,7 @@ class AIService:
                 event_type=EventType.TRANSACTION,
                 user_id=self.user_name,
                 entity=my_entity,
-                data={"result_length": len(result)},
+                data={"result": result},
                 tags=["ai", "process", "success", ai_provider.lower()]
             )
             

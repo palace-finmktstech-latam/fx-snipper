@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Body, Depends
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import json
+import os
 from app.main import logger
 from core_logging.client import EventType, LogLevel
 
@@ -146,6 +147,7 @@ async def process_swap(request: ProcessSwapRequest):
             event_type=EventType.TRANSACTION,
             entity=my_entity,
             user_id=request.user_name,
+            data={"output_data": output_data},
             tags=["api", "process-swap", "success"]
         )
         

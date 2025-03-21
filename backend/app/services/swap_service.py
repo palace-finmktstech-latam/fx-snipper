@@ -4,6 +4,16 @@ import math
 import os
 from app.main import logger
 from core_logging.client import EventType, LogLevel
+from app.swap_calculator.adapters import (
+    prepare_swap_parameters,
+    parse_date_basis,
+    parse_business_day_convention,
+    parse_frequency,
+    parse_maturity,
+    parse_rate,
+    get_month_end_day
+)
+from app.swap_calculator.calculators import calculate_swap_cashflows
 
 # Get parameters from environment variables
 my_entity = os.environ.get('MY_ENTITY')
@@ -20,7 +30,7 @@ def format_rate(rate: Union[str, float]) -> str:
     """Format rate as percentage string."""
     if isinstance(rate, str):
         return rate
-    return f"{rate*100:.2f}%"
+    return f"{rate:.3f}%"
 
 def transform_output(trade_json: dict, leg1_cashflows: list, leg2_cashflows: list) -> dict:
     """Transform the API output to match the required format."""
@@ -29,6 +39,8 @@ def transform_output(trade_json: dict, leg1_cashflows: list, leg2_cashflows: lis
             "Transforming output data",
             event_type=EventType.SYSTEM_EVENT,
             tags=["swap", "transform", "output"],
+            data={"fixed_rate": trade_json["TradeSummary"]["Leg 1 Payer"]["Rate"],
+                  "floating_rate": trade_json["TradeSummary"]["Leg 2 Payer"]["Rate"]},
             entity=my_entity
         )
         
@@ -120,33 +132,7 @@ def transform_output(trade_json: dict, leg1_cashflows: list, leg2_cashflows: lis
 
 class SwapParamTransformer:
     def __init__(self):
-        # Mapping of date basis strings to day count conventions
-        self.date_basis_map = {
-            "actual/360": "Actual/360",
-            "actual/365": "Actual/365",
-            "30/360": "30/360",
-            "30e/360": "30E/360"
-        }
-        
-        # Mapping of business day convention strings
-        self.bdc_map = {
-            "no adjustment": "Unadjusted",
-            "modified following": "ModifiedFollowing",
-            "following": "Following",
-            "modified preceding": "ModifiedPreceding",
-            "preceding": "Preceding"
-        }
-        
-        # Mapping of frequency strings to period values
-        self.frequency_map = {
-            "daily": {"period": "Daily", "months": 0},
-            "weekly": {"period": "Weekly", "months": 0},
-            "monthly": {"period": "Monthly", "months": 1},
-            "quarterly": {"period": "Quarterly", "months": 3},
-            "semi-annually": {"period": "Semiannual", "months": 6},
-            "annually": {"period": "Annual", "months": 12},
-            "one-off": {"period": "Once", "months": 0}
-        }
+        pass
         
     def transform_json(self, trade_json: Dict[str, Any]) -> Dict[str, Any]:
         """Transform the AI-extracted JSON into a format suitable for QuantLib."""
@@ -158,106 +144,22 @@ class SwapParamTransformer:
                 entity=my_entity
             )
             
-            trade_summary = trade_json["TradeSummary"]
-            
-            # Get trade date
-            trade_date_str = trade_summary["Trade Date"]
-            trade_date = datetime.strptime(trade_date_str, "%d-%m-%Y").date()
-            
-            # Calculate effective date (trade date + start lag)
-            start_lag = int(trade_summary.get("Start Lag", 0))
-            effective_date = trade_date + timedelta(days=start_lag)
-            
-            # Parse maturity
-            maturity_str = trade_summary["Maturity"]
-            termination_date = self._parse_maturity(maturity_str, effective_date)
-            
-            # Extract leg 1 (fixed) details
-            leg1 = trade_summary["Leg 1 Payer"]
-            leg1_type = leg1["Leg Type"].lower()
-            leg1_rate = self._parse_rate(leg1["Rate"])
-            leg1_notional = float(leg1["Notional Amount"])
-            leg1_date_basis = self._normalize_date_basis(leg1["Date Basis"])
-            leg1_bdc = self._normalize_bdc(leg1["Business Date Adjustment"])
-            leg1_frequency = self._normalize_frequency(leg1.get("Coupon Frequency", "Semi-Annually"))
-            
-            # Extract leg 2 (floating) details
-            leg2 = trade_summary["Leg 2 Payer"]
-            leg2_type = leg2["Leg Type"].lower()
-            leg2_rate = self._parse_rate(leg2["Rate"])
-            leg2_notional = float(leg2["Notional Amount"])
-            leg2_date_basis = self._normalize_date_basis(leg2["Date Basis"])
-            leg2_bdc = self._normalize_bdc(leg2["Business Date Adjustment"])
-            leg2_frequency = self._normalize_frequency(leg2.get("Coupon Frequency", "Semi-Annually"))
-            
-            # Determine which leg is fixed and which is floating
-            if leg1_type == "fixed" and leg2_type == "floating":
-                fixed_leg = {
-                    "rate": leg1_rate,
-                    "notional": leg1_notional,
-                    "date_basis": leg1_date_basis,
-                    "bdc": leg1_bdc,
-                    "frequency": leg1_frequency
-                }
-                floating_leg = {
-                    "spread": leg2_rate if isinstance(leg2_rate, float) else 0.0,
-                    "notional": leg2_notional,
-                    "date_basis": leg2_date_basis,
-                    "bdc": leg2_bdc,
-                    "frequency": leg2_frequency
-                }
-            elif leg1_type == "floating" and leg2_type == "fixed":
-                fixed_leg = {
-                    "rate": leg2_rate,
-                    "notional": leg2_notional,
-                    "date_basis": leg2_date_basis,
-                    "bdc": leg2_bdc,
-                    "frequency": leg2_frequency
-                }
-                floating_leg = {
-                    "spread": leg1_rate if isinstance(leg1_rate, float) else 0.0,
-                    "notional": leg1_notional,
-                    "date_basis": leg1_date_basis,
-                    "bdc": leg1_bdc,
-                    "frequency": leg1_frequency
-                }
-            else:
-                # Default if types are unclear
-                fixed_leg = {
-                    "rate": leg1_rate,
-                    "notional": leg1_notional,
-                    "date_basis": leg1_date_basis,
-                    "bdc": leg1_bdc,
-                    "frequency": leg1_frequency
-                }
-                floating_leg = {
-                    "spread": 0.0,
-                    "notional": leg2_notional,
-                    "date_basis": leg2_date_basis,
-                    "bdc": leg2_bdc,
-                    "frequency": leg2_frequency
-                }
+            # Use the prepare_swap_parameters function from adapters.py
+            params = prepare_swap_parameters(trade_json)
             
             logger.info(
                 "JSON transformation completed successfully",
                 event_type=EventType.SYSTEM_EVENT,
                 data={
-                    "trade_date": trade_date.isoformat(),
-                    "effective_date": effective_date.isoformat(),
-                    "termination_date": termination_date.isoformat(),
+                    "trade_date": params["trade_date"].isoformat(),
+                    "effective_date": params["effective_date"].isoformat(),
+                    "termination_date": params["termination_date"].isoformat(),
                 },
                 tags=["swap", "transform", "success"],
                 entity=my_entity
             )
             
-            # Return transformed parameters
-            return {
-                "trade_date": trade_date,
-                "effective_date": effective_date,
-                "termination_date": termination_date,
-                "fixed_leg": fixed_leg,
-                "floating_leg": floating_leg
-            }
+            return params
             
         except Exception as e:
             logger.log_exception(
@@ -268,97 +170,6 @@ class SwapParamTransformer:
                 entity=my_entity
             )
             raise
-    
-    def _parse_maturity(self, maturity_str: str, effective_date: date) -> date:
-        """Parse maturity string into a date."""
-        # Try to parse as a specific date
-        try:
-            return datetime.strptime(maturity_str, "%d-%m-%Y").date()
-        except ValueError:
-            pass
-        
-        # Try to parse as a tenor (e.g., "5Y", "10Y", "1Y6M")
-        years = 0
-        months = 0
-        
-        # Handle "Y" for years
-        if "Y" in maturity_str:
-            years_part = maturity_str.split("Y")[0]
-            if years_part:
-                years = float(years_part)
-        
-        # Handle "M" for months
-        if "M" in maturity_str:
-            months_part = maturity_str.split("M")[0]
-            if "Y" in months_part:
-                months_part = months_part.split("Y")[1]
-            if months_part:
-                months = int(months_part)
-        
-        # Calculate termination date
-        total_months = int(years * 12) + months
-        years_to_add = total_months // 12
-        months_to_add = total_months % 12
-        
-        new_year = effective_date.year + years_to_add
-        new_month = effective_date.month + months_to_add
-        
-        if new_month > 12:
-            new_year += 1
-            new_month -= 12
-        
-        # Handle month end adjustments
-        day = min(effective_date.day, self._get_month_end_day(new_year, new_month))
-        
-        return date(new_year, new_month, day)
-    
-    def _get_month_end_day(self, year: int, month: int) -> int:
-        """Get the last day of the specified month."""
-        if month == 12:
-            next_month = date(year + 1, 1, 1)
-        else:
-            next_month = date(year, month + 1, 1)
-        return (next_month - timedelta(days=1)).day
-    
-    def _parse_rate(self, rate_str: Union[str, float]) -> float:
-        """Parse rate string into a float."""
-        if isinstance(rate_str, float):
-            return rate_str
-        
-        # Remove percentage sign and convert to decimal
-        if isinstance(rate_str, str):
-            if "%" in rate_str:
-                return float(rate_str.replace("%", "")) / 100
-            else:
-                try:
-                    return float(rate_str)
-                except ValueError:
-                    return 0.0
-        return 0.0
-    
-    def _normalize_date_basis(self, date_basis: str) -> str:
-        """Normalize date basis string to a standard format."""
-        date_basis_lower = date_basis.lower()
-        for key, value in self.date_basis_map.items():
-            if key in date_basis_lower:
-                return value
-        return "Actual/360"  # Default
-    
-    def _normalize_bdc(self, bdc: str) -> str:
-        """Normalize business day convention string to a standard format."""
-        bdc_lower = bdc.lower()
-        for key, value in self.bdc_map.items():
-            if key in bdc_lower:
-                return value
-        return "ModifiedFollowing"  # Default
-    
-    def _normalize_frequency(self, frequency: str) -> Dict[str, Any]:
-        """Normalize frequency string to a standard format."""
-        frequency_lower = frequency.lower()
-        for key, value in self.frequency_map.items():
-            if key in frequency_lower:
-                return value
-        return self.frequency_map["semi-annually"]  # Default
 
 def load_ql_parameters(params: Dict[str, Any]) -> Dict[str, Any]:
     """Convert transformed parameters into QuantLib-specific parameters."""
@@ -370,48 +181,24 @@ def load_ql_parameters(params: Dict[str, Any]) -> Dict[str, Any]:
             entity=my_entity
         )
         
-        # In a real implementation, this would prepare parameters for QuantLib
-        # For simplicity, we'll return a basic structure for cashflow generation
-        
-        fixed_leg_freq_months = params["fixed_leg"]["frequency"]["months"]
-        floating_leg_freq_months = params["floating_leg"]["frequency"]["months"]
-        
-        # Calculate number of payments based on frequency
-        term_months = (params["termination_date"].year - params["effective_date"].year) * 12 + \
-                      params["termination_date"].month - params["effective_date"].month
-        
-        fixed_payments = math.ceil(term_months / fixed_leg_freq_months) if fixed_leg_freq_months > 0 else 1
-        floating_payments = math.ceil(term_months / floating_leg_freq_months) if floating_leg_freq_months > 0 else 1
+        # All we need to do is pass through the parameters already transformed
+        # This function now mainly serves as a logging point and potential
+        # future validation layer
         
         logger.info(
             "QuantLib parameters loaded successfully",
             event_type=EventType.SYSTEM_EVENT,
             data={
-                "term_months": term_months,
-                "fixed_payments": fixed_payments,
-                "floating_payments": floating_payments
+                "trade_date": params["trade_date"].isoformat(),
+                "effective_date": params["effective_date"].isoformat(),
+                "termination_date": params["termination_date"].isoformat(),
             },
             tags=["swap", "quantlib", "success"],
             entity=my_entity
         )
         
-        return {
-            "trade_date": params["trade_date"],
-            "effective_date": params["effective_date"],
-            "termination_date": params["termination_date"],
-            "fixed_rate": params["fixed_leg"]["rate"],
-            "fixed_notional": params["fixed_leg"]["notional"],
-            "fixed_date_basis": params["fixed_leg"]["date_basis"],
-            "fixed_bdc": params["fixed_leg"]["bdc"],
-            "fixed_freq_months": fixed_leg_freq_months,
-            "fixed_payments": fixed_payments,
-            "floating_spread": params["floating_leg"]["spread"],
-            "floating_notional": params["floating_leg"]["notional"],
-            "floating_date_basis": params["floating_leg"]["date_basis"],
-            "floating_bdc": params["floating_leg"]["bdc"],
-            "floating_freq_months": floating_leg_freq_months,
-            "floating_payments": floating_payments
-        }
+        return params
+        
     except Exception as e:
         logger.log_exception(
             e,
@@ -423,188 +210,24 @@ def load_ql_parameters(params: Dict[str, Any]) -> Dict[str, Any]:
         raise
 
 def create_swap_cashflows(**kwargs) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Generate simplified cashflow schedules for both legs of a swap."""
+    """Generate cashflow schedules for both legs of a swap."""
     try:
         logger.info(
             "Creating swap cashflows",
             event_type=EventType.SYSTEM_EVENT,
             tags=["swap", "cashflow", "calculation"],
+            data={"fixed_leg": kwargs["fixed_leg"], "floating_leg": kwargs["floating_leg"]},
             entity=my_entity
         )
         
-        effective_date = kwargs["effective_date"]
-        termination_date = kwargs["termination_date"]
-        
-        # Fixed leg parameters
-        fixed_rate = kwargs["fixed_rate"]
-        fixed_notional = kwargs["fixed_notional"]
-        fixed_freq_months = kwargs["fixed_freq_months"]
-        fixed_payments = kwargs["fixed_payments"]
-        
-        # Floating leg parameters
-        floating_spread = kwargs["floating_spread"]
-        floating_notional = kwargs["floating_notional"]
-        floating_freq_months = kwargs["floating_freq_months"]
-        floating_payments = kwargs["floating_payments"]
-        
-        # Generate fixed leg cashflows
-        fixed_leg = []
-        remaining_notional = fixed_notional
-        amortization_per_period = fixed_notional / fixed_payments if fixed_payments > 0 else fixed_notional
-        
-        for i in range(fixed_payments):
-            # Calculate payment date
-            if fixed_freq_months > 0:
-                months_to_add = (i + 1) * fixed_freq_months
-                years_to_add = months_to_add // 12
-                months_to_add = months_to_add % 12
-                
-                payment_year = effective_date.year + years_to_add
-                payment_month = effective_date.month + months_to_add
-                
-                if payment_month > 12:
-                    payment_year += 1
-                    payment_month -= 12
-                
-                payment_day = min(effective_date.day, _get_month_end_day(payment_year, payment_month))
-                payment_date = date(payment_year, payment_month, payment_day)
-            else:
-                # One-off payment
-                payment_date = termination_date
-            
-            # Calculate period dates
-            if i == 0:
-                start_date = effective_date
-            else:
-                prev_months = i * fixed_freq_months
-                prev_years = prev_months // 12
-                prev_months = prev_months % 12
-                
-                start_year = effective_date.year + prev_years
-                start_month = effective_date.month + prev_months
-                
-                if start_month > 12:
-                    start_year += 1
-                    start_month -= 12
-                
-                start_day = min(effective_date.day, _get_month_end_day(start_year, start_month))
-                start_date = date(start_year, start_month, start_day)
-            
-            # Calculate accrual days (simplified)
-            accrual_days = (payment_date - start_date).days
-            
-            # Apply amortization
-            if i == fixed_payments - 1:
-                # Last payment - ensure we amortize to zero
-                amortization = remaining_notional
-            else:
-                amortization = amortization_per_period
-            
-            # Calculate interest (simplified)
-            interest = remaining_notional * fixed_rate * accrual_days / 365
-            
-            # Create cashflow entry
-            cashflow = {
-                "Start Date": start_date.strftime("%Y-%m-%d"),
-                "End Date": payment_date.strftime("%Y-%m-%d"),
-                "Rate": fixed_rate,
-                "Spread": 0.0,
-                "Notional": remaining_notional,
-                "Amortization": amortization,
-                "Interest": interest
-            }
-            
-            fixed_leg.append(cashflow)
-            
-            # Update remaining notional
-            remaining_notional -= amortization
-        
-        # Generate floating leg cashflows
-        floating_leg = []
-        remaining_notional = floating_notional
-        amortization_per_period = floating_notional / floating_payments if floating_payments > 0 else floating_notional
-        
-        for i in range(floating_payments):
-            # Calculate payment date
-            if floating_freq_months > 0:
-                months_to_add = (i + 1) * floating_freq_months
-                years_to_add = months_to_add // 12
-                months_to_add = months_to_add % 12
-                
-                payment_year = effective_date.year + years_to_add
-                payment_month = effective_date.month + months_to_add
-                
-                if payment_month > 12:
-                    payment_year += 1
-                    payment_month -= 12
-                
-                payment_day = min(effective_date.day, _get_month_end_day(payment_year, payment_month))
-                payment_date = date(payment_year, payment_month, payment_day)
-            else:
-                # One-off payment
-                payment_date = termination_date
-            
-            # Calculate period dates
-            if i == 0:
-                start_date = effective_date
-            else:
-                prev_months = i * floating_freq_months
-                prev_years = prev_months // 12
-                prev_months = prev_months % 12
-                
-                start_year = effective_date.year + prev_years
-                start_month = effective_date.month + prev_months
-                
-                if start_month > 12:
-                    start_year += 1
-                    start_month -= 12
-                
-                start_day = min(effective_date.day, _get_month_end_day(start_year, start_month))
-                start_date = date(start_year, start_month, start_day)
-            
-            # Calculate accrual days (simplified)
-            accrual_days = (payment_date - start_date).days
-            
-            # Apply amortization
-            if i == floating_payments - 1:
-                # Last payment - ensure we amortize to zero
-                amortization = remaining_notional
-            else:
-                amortization = amortization_per_period
-            
-            # Calculate interest (simplified)
-            # For floating rate, we're using a placeholder rate of 2% plus spread
-            floating_rate = 0.02
-            interest = remaining_notional * (floating_rate + floating_spread) * accrual_days / 365
-            
-            # Create cashflow entry
-            cashflow = {
-                "Start Date": start_date.strftime("%Y-%m-%d"),
-                "End Date": payment_date.strftime("%Y-%m-%d"),
-                "Rate": floating_rate,
-                "Spread": floating_spread,
-                "Notional": remaining_notional,
-                "Amortization": amortization,
-                "Interest": interest
-            }
-            
-            floating_leg.append(cashflow)
-            
-            # Update remaining notional
-            remaining_notional -= amortization
-        
-        logger.info(
-            "Cashflows created successfully",
-            event_type=EventType.SYSTEM_EVENT,
-            data={
-                "fixed_leg_flows": len(fixed_leg),
-                "floating_leg_flows": len(floating_leg)
-            },
-            tags=["swap", "cashflow", "success"],
-            entity=my_entity
+        # Delegate to the calculator module
+        return calculate_swap_cashflows(
+            kwargs["trade_date"],
+            kwargs["effective_date"],
+            kwargs["termination_date"],
+            kwargs["fixed_leg"],
+            kwargs["floating_leg"]
         )
-        
-        return fixed_leg, floating_leg
     except Exception as e:
         logger.log_exception(
             e,
@@ -614,11 +237,3 @@ def create_swap_cashflows(**kwargs) -> Tuple[List[Dict[str, Any]], List[Dict[str
             entity=my_entity
         )
         raise
-
-def _get_month_end_day(year: int, month: int) -> int:
-    """Get the last day of the specified month."""
-    if month == 12:
-        next_month = date(year + 1, 1, 1)
-    else:
-        next_month = date(year, month + 1, 1)
-    return (next_month - timedelta(days=1)).day
