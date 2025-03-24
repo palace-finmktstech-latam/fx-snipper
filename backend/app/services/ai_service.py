@@ -59,6 +59,7 @@ class AIService:
     def extract_text(self, image_input: str) -> str:
         """Extract text from an image using OpenAI's Vision API."""
         EXTRACTION_PROMPT = "Extract the text from this image."
+        request_id = f"req-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
 
         if not self.openai_client:
             logger.error(
@@ -92,8 +93,12 @@ class AIService:
                 )
                 raise ValueError("Invalid image input format")
 
+            # Capture start time for performance tracking
+            start_time = datetime.utcnow()
+            model = "gpt-4o-2024-11-20"
+
             response = self.openai_client.chat.completions.create(
-                model="gpt-4o-2024-11-20",
+                model=model,
                 messages=[
                     {
                         "role": "system",
@@ -119,6 +124,34 @@ class AIService:
                 temperature=0
             )
             
+            # Calculate execution time
+            end_time = datetime.utcnow()
+            execution_time_ms = int((end_time - start_time).total_seconds() * 1000)
+            
+            # Calculate token counts and cost
+            input_tokens = response.usage.prompt_tokens
+            output_tokens = response.usage.completion_tokens
+            
+            # Calculate cost using our calculator
+            cost_data = self.cost_calculator.calculate_cost(
+                provider=AIProvider.OPENAI,
+                model_name=model,  # Using gpt-4o for vision model
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                log_cost=True,
+                user_id=self.user_name,
+                entity=my_entity,
+                context={
+                    "request_id": request_id,
+                    "duration_ms": str(execution_time_ms),
+                    "text_length": str(len(base64_image)),
+                    "ai_provider": "OpenAI",
+                    "model": model,
+                    "feature": "vision"
+                },
+                tags=["ai-cost", "openai", "vision", "extraction"]
+            )
+            
             logger.info(
                 "Successfully extracted text from image",
                 event_type=EventType.SYSTEM_EVENT,
@@ -140,7 +173,7 @@ class AIService:
                 tags=["api", "extract", "error"]
             )
             raise Exception(f"Error extracting text from image: {str(e)}")
-    
+
     def get_extraction_prompt(self, text_to_process: str) -> str:
         """Generate the extraction prompt with current user information."""
         if not self.user_name or not self.user_entity:
@@ -325,8 +358,12 @@ class AIService:
                     )
                     raise ValueError("OpenAI API key is not set.")
 
+                # Capture start time for performance tracking
+                start_time = datetime.utcnow()
+                model = "gpt-4o-2024-11-20"
+
                 response = self.openai_client.chat.completions.create(
-                    model="gpt-4o-2024-11-20",
+                    model=model,
                     messages=[
                         {
                             "role": "system",
@@ -341,6 +378,33 @@ class AIService:
                     temperature=0
                 )
                 
+                # Calculate execution time
+                end_time = datetime.utcnow()
+                execution_time_ms = int((end_time - start_time).total_seconds() * 1000)
+                
+                # Calculate token counts
+                input_tokens = response.usage.prompt_tokens
+                output_tokens = response.usage.completion_tokens
+                
+                # Calculate cost
+                cost_data = self.cost_calculator.calculate_cost(
+                    provider=AIProvider.OPENAI,
+                    model_name=model,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    log_cost=True,
+                    user_id=self.user_name,
+                    entity=my_entity,
+                    context={
+                        "request_id": request_id,
+                        "duration_ms": str(execution_time_ms),
+                        "text_length": str(len(extracted_text)),
+                        "ai_provider": "OpenAI",
+                        "model": model
+                    },
+                    tags=["ai-cost", "openai", "gpt4o", "extraction"]
+                )
+
                 result = response.choices[0].message.content
 
             elif ai_provider == "Anthropic":
@@ -409,6 +473,9 @@ class AIService:
                     raise ValueError("Google API key is not set")
                 
                 try:
+                    # Capture start time for performance tracking
+                    start_time = datetime.utcnow()
+
                     generation_config = {
                         "temperature": 0,
                         "top_p": 1,
@@ -424,6 +491,40 @@ class AIService:
                     )
                     
                     response = model.generate_content(EXTRACTION_PROMPT)
+
+                    # Calculate execution time
+                    end_time = datetime.utcnow()
+                    execution_time_ms = int((end_time - start_time).total_seconds() * 1000)
+                    
+                    # For Google Gemini, token counts are not directly available in the response
+                    # We'll need to estimate them based on text length
+                    prompt_text_length = len(EXTRACTION_PROMPT)
+                    response_text_length = len(response.text)
+                    
+                    # Rough estimation: ~4 characters per token for English text
+                    estimated_input_tokens = int(prompt_text_length / 4)
+                    estimated_output_tokens = int(response_text_length / 4)
+                    
+                    # Calculate cost
+                    cost_data = self.cost_calculator.calculate_cost(
+                        provider=AIProvider.GOOGLE,
+                        model_name="gemini-1.5-pro",
+                        input_tokens=estimated_input_tokens,
+                        output_tokens=estimated_output_tokens,
+                        log_cost=True,
+                        user_id=self.user_name,
+                        entity=my_entity,
+                        context={
+                            "request_id": request_id,
+                            "duration_ms": str(execution_time_ms),
+                            "text_length": str(len(extracted_text)),
+                            "ai_provider": "Google",
+                            "model": "gemini-1.5-pro",
+                            "estimated_tokens": "true"  # Flag that tokens are estimated
+                        },
+                        tags=["ai-cost", "google", "gemini", "extraction"]
+                    )
+
                     result = response.text
                     
                 except Exception as e:
