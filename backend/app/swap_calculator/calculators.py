@@ -282,7 +282,7 @@ def calculate_swap_cashflows(
         )
         
         # Get floating reference rate name if available
-        reference_rate_name = floating_leg.get("rate", "LIBOR")
+        reference_rate_name = floating_leg.get("rate", "Unknown")
         
         # Generate floating leg cashflows
         floating_cashflows = _generate_cashflows(

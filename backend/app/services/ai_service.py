@@ -13,6 +13,7 @@ import io
 from app.config import settings
 from app.main import logger
 from core_logging.client import EventType, LogLevel
+from core_ai_cost import AICostCalculator, AIProvider
 
 # Get parameters from environment variables
 my_entity = os.environ.get('MY_ENTITY')
@@ -40,6 +41,11 @@ class AIService:
             
         if self.google_api_key:
             gemini.configure(api_key=self.google_api_key)
+        
+        self.cost_calculator = AICostCalculator(
+            app_name="Swap Snipper",
+            log_client=logger
+        )
         
     def update_user_info(self, user_name: str, user_entity: str):
         """Update the user information used in prompts."""
@@ -296,6 +302,7 @@ class AIService:
     def process_text(self, extracted_text: str, ai_provider: str = "OpenAI") -> str:
         """Process the extracted text to generate structured JSON output."""
         EXTRACTION_PROMPT = self.get_extraction_prompt(extracted_text)
+        request_id = f"req-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
 
         try:
             logger.info(
@@ -346,7 +353,10 @@ class AIService:
                         tags=["ai", "process", "error", "config"]
                     )
                     raise ValueError("Anthropic API key is not set.")
-                
+
+                # Capture start time for performance tracking
+                start_time = datetime.utcnow()
+
                 response = self.anthropic_client.messages.create(
                     model="claude-3-7-sonnet-20250219",
                     system="You are an expert in interpreting Bloomberg chat messages between Swap traders. You will study chat snippets and extract the key trade details from the chat, in JSON format. Do not put Markdown around the extracted JSON. Only provide the JSON itself, I don't want any complementary text at all.",
@@ -356,6 +366,33 @@ class AIService:
                     }],
                     max_tokens=2000,
                     temperature=0
+                )
+
+                # Calculate execution time
+                end_time = datetime.utcnow()
+                execution_time_ms = int((end_time - start_time).total_seconds() * 1000)
+                
+                # Calculate token counts from the response
+                input_tokens = response.usage.input_tokens
+                output_tokens = response.usage.output_tokens
+                
+                # Calculate cost using our calculator
+                cost_data = self.cost_calculator.calculate_cost(
+                    provider=AIProvider.ANTHROPIC,
+                    model_name="claude-3.7-sonnet",
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    log_cost=True,  # The calculator will log the cost
+                    user_id=self.user_name,
+                    entity=my_entity,  # Pass entity for proper logging
+                    context={
+                        "request_id": request_id,
+                        "duration_ms": execution_time_ms,
+                        "text_length": len(extracted_text),
+                        "ai_provider": "Anthropic",
+                        "model": "claude-3-7-sonnet-20250219"
+                    },
+                    tags=["ai-cost", "anthropic", "claude", "extraction"]
                 )
                 
                 result = response.content[0].text
