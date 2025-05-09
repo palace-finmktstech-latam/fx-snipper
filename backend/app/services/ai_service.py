@@ -245,7 +245,7 @@ class AIService:
         If you cannot tie a Date Basis to a specific leg, default to "Actual/360".
 
         Tell me the Business Day Adjustment for each leg. This is likely one of the following:
-        "No Adjustment," "Modified Following," "Following," "Modified Preceding," or "Preceding."
+        "No Adjustment" (often written in the source chat as Unadjusted), "Modified Following," "Following," "Modified Preceding," or "Preceding."
         If you cannot tie a Business Date Adjustment to a specific leg, default to "Modified Following."
 
         Also, tell me what the floating rate reference is in this chat. Some possible values and how they should be represented in the output are as follows:

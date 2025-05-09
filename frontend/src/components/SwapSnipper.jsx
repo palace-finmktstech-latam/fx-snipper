@@ -14,6 +14,14 @@ const SwapSnipper = () => {
   const [error, setError] = useState(null);
   const [tradeSentToMurex, setTradeSentToMurex] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [showCurrencyMenu, setShowCurrencyMenu] = useState({
+    visible: false,
+    legNumber: null,
+    position: { top: 0, left: 0 }
+  });
+
+  // Currency options
+  const currencyOptions = ["CLP", "CLF", "USD", "EUR", "CHF"];
 
   useEffect(() => {
     const storedEntity = localStorage.getItem('myEntity');
@@ -27,6 +35,21 @@ const SwapSnipper = () => {
       }
     };
   }, [pastedContent]);
+
+  useEffect(() => {
+    if (showCurrencyMenu.visible) {
+      const handleClickOutside = (event) => {
+        // Check if the click is outside the currency menu
+        const menu = document.querySelector('.currency-menu');
+        if (menu && !menu.contains(event.target)) {
+          setShowCurrencyMenu({ visible: false, legNumber: null, position: { top: 0, left: 0 } });
+        }
+      };
+      
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showCurrencyMenu.visible]);
 
   const processSwap = async (content, type) => {
     setIsLoading(true);
@@ -100,6 +123,37 @@ const SwapSnipper = () => {
     }
   };
 
+  const handleTermClick = (type, value, legNumber, event) => {
+    console.log(`Clicked on ${type}: ${value}`);
+    
+    switch (type) {
+      case 'action':
+        if (value === 'pays' || value === 'receives') {
+          swapTradeEntities();
+        }
+        break;
+      case 'rate':
+      case 'currency':
+        // Position the menu near the clicked element
+        const rect = event.currentTarget.getBoundingClientRect();
+        setShowCurrencyMenu({
+          visible: true,
+          legNumber,
+          position: { 
+            top: rect.bottom + window.scrollY, 
+            left: rect.left + window.scrollX 
+          }
+        });
+        break;
+      case 'amount':
+        // Future implementations for other term types
+        alert(`You clicked on ${type}: ${value}`);
+        break;
+      default:
+        break;
+    }
+  };
+
   const getCashflowData = () => {
     if (!tradeInfo || !tradeInfo.legs) return [];
 
@@ -115,6 +169,76 @@ const SwapSnipper = () => {
         interest: flow.interest,
       }))
     );
+  };
+
+  const swapTradeEntities = () => {
+    if (!tradeInfo || !tradeInfo.tradeInfo || !tradeInfo.legs) return;
+    
+    // Create a deep copy to avoid mutation issues
+    const newTradeInfo = JSON.parse(JSON.stringify(tradeInfo));
+    
+    // Swap payers in trade info
+    const { leg1Payer, leg2Payer } = newTradeInfo.tradeInfo;
+    newTradeInfo.tradeInfo.leg1Payer = leg2Payer;
+    newTradeInfo.tradeInfo.leg2Payer = leg1Payer;
+    
+    // Swap payers in legs
+    if (newTradeInfo.legs.length >= 2) {
+      const leg1Payer = newTradeInfo.legs[0].payer;
+      newTradeInfo.legs[0].payer = newTradeInfo.legs[1].payer;
+      newTradeInfo.legs[1].payer = leg1Payer;
+    }
+    
+    // Swap leg conventions in trade info
+    const { 
+      leg1BusinessDayConvention, 
+      leg1DayCountConvention,
+      leg2BusinessDayConvention,
+      leg2DayCountConvention
+    } = newTradeInfo.tradeInfo;
+
+    newTradeInfo.tradeInfo.leg1BusinessDayConvention = leg2BusinessDayConvention;
+    newTradeInfo.tradeInfo.leg1DayCountConvention = leg2DayCountConvention;
+    newTradeInfo.tradeInfo.leg2BusinessDayConvention = leg1BusinessDayConvention;
+    newTradeInfo.tradeInfo.leg2DayCountConvention = leg1DayCountConvention;
+
+    // Update the state
+    setTradeInfo(newTradeInfo);
+  };
+
+  // Handle currency selection
+  const handleCurrencySelect = (currency, event) => {
+    if (!tradeInfo || !showCurrencyMenu.legNumber) return;
+    
+    // Stop propagation to prevent the menu from closing immediately
+    event.stopPropagation();
+    
+    const newTradeInfo = JSON.parse(JSON.stringify(tradeInfo));
+    const legKey = `leg${showCurrencyMenu.legNumber}Currency`;
+    const oldCurrency = newTradeInfo.tradeInfo[legKey];
+    
+    // Update in tradeInfo
+    newTradeInfo.tradeInfo[legKey] = currency;
+    
+    // Update in legs array
+    const legIndex = showCurrencyMenu.legNumber - 1;
+    if (newTradeInfo.legs[legIndex]) {
+      newTradeInfo.legs[legIndex].currency = currency;
+      
+      // Update cashflows if needed
+      newTradeInfo.legs[legIndex].cashflows.forEach(cashflow => {
+        // Any currency-specific calculations would go here
+        // For example, you might need to update rates or amounts based on currency
+      });
+    }
+    
+    // Set state and close menu
+    setTradeInfo(newTradeInfo);
+    
+    // Use setTimeout to allow the click event to complete before hiding menu
+    setTimeout(() => {
+      setShowCurrencyMenu({ visible: false, legNumber: null, position: { top: 0, left: 0 } });
+    }, 50);
   };
 
   const columnDefs = [
@@ -151,7 +275,7 @@ const SwapSnipper = () => {
 
   const getTradeDetailsAsProse = () => {
     if (!tradeInfo || !tradeInfo.tradeInfo || !myEntity) return '';
-
+  
     const {
       leg1Rate,
       leg1Payer,
@@ -162,27 +286,39 @@ const SwapSnipper = () => {
       leg2Currency,
       leg2NotionalAmount,
     } = tradeInfo.tradeInfo;
-
-    const formatRate = (rate) => (isNaN(rate) ? rate : `${rate}%`);
-
+  
+    // Helper function to create clickable elements
+    const makeClickable = (term, value, type, legNumber = null) => (
+      <span 
+        onClick={(e) => handleTermClick(type, value, legNumber, e)}
+        style={{
+          cursor: 'pointer',
+          //textDecoration: 'underline',
+          //color: '#00e7ff'
+        }}
+      >
+        {type === 'rate' && !isNaN(value) ? `${value}%` : value}
+      </span>
+    );
+  
     if (myEntity === leg1Payer) {
       return (
         <>
-          <strong>{myEntity}</strong> <strong>pays</strong> {formatRate(leg1Rate)} on {leg1Currency} {leg1NotionalAmount.toLocaleString()}
-          {' '}and <strong>receives</strong> {formatRate(leg2Rate)} on {leg2Currency} {leg1NotionalAmount.toLocaleString()} from <strong>{leg2Payer}</strong>.
+          <strong>{myEntity}</strong> <strong>{makeClickable('pays', 'pays', 'action')}</strong> {makeClickable(leg1Rate, leg1Rate, 'rate', 1)} on {makeClickable(leg1Currency, leg1Currency, 'currency', 1)} {makeClickable(leg1NotionalAmount, leg1NotionalAmount.toLocaleString(), 'amount', 1)}
+          {' '}and <strong>{makeClickable('receives', 'receives', 'action')}</strong> {makeClickable(leg2Rate, leg2Rate, 'rate', 2)} on {makeClickable(leg2Currency, leg2Currency, 'currency', 2)} {makeClickable(leg1NotionalAmount, leg1NotionalAmount.toLocaleString(), 'amount', 2)} from <strong>{leg2Payer}</strong>.
         </>
       );
     }
-
+  
     if (myEntity === leg2Payer) {
       return (
         <>
-          <strong>{myEntity}</strong> <strong>pays</strong> {formatRate(leg2Rate)} on {leg2Currency} {leg2NotionalAmount.toLocaleString()}
-          {' '}<strong>and receives</strong> {formatRate(leg1Rate)} on {leg1Currency} {leg2NotionalAmount.toLocaleString()} from <strong>{leg1Payer}</strong>.
+          <strong>{myEntity}</strong> <strong>{makeClickable('pays', 'pays', 'action')}</strong> {makeClickable(leg2Rate, leg2Rate, 'rate', 2)} on {makeClickable(leg2Currency, leg2Currency, 'currency', 2)} {makeClickable(leg2NotionalAmount, leg2NotionalAmount.toLocaleString(), 'amount', 2)}
+          {' '}<strong>and {makeClickable('receives', 'receives', 'action')}</strong> {makeClickable(leg1Rate, leg1Rate, 'rate', 1)} on {makeClickable(leg1Currency, leg1Currency, 'currency', 1)} {makeClickable(leg2NotionalAmount, leg2NotionalAmount.toLocaleString(), 'amount', 1)} from <strong>{leg1Payer}</strong>.
         </>
       );
     }
-
+  
     return 'Entity does not match either payer in the trade.';
   };
 
@@ -661,6 +797,50 @@ const SwapSnipper = () => {
           </button>
         )}
       </div>
+
+      {/* Currency selection menu */}
+      {showCurrencyMenu.visible && (
+        <div 
+          className="currency-menu"
+          style={{
+            position: 'absolute',
+            zIndex: 1000,
+            top: `${showCurrencyMenu.position.top}px`,
+            left: `${showCurrencyMenu.position.left}px`,
+            backgroundColor: '#1a1a1a',
+            border: '1px solid #00e7ff',
+            borderRadius: '4px',
+            padding: '5px 0',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.5)',
+            fontSize: '10px'
+          }}
+        >
+          {currencyOptions.map((currency) => {
+            const isSelected = tradeInfo.tradeInfo[`leg${showCurrencyMenu.legNumber}Currency`] === currency;
+            return (
+              <div
+                key={currency}
+                onClick={(e) => handleCurrencySelect(currency, e)}
+                style={{
+                  padding: '5px 15px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  backgroundColor: isSelected ? '#2a2a2a' : 'transparent',
+                  transition: 'background-color 0.2s',
+                  minWidth: '100px'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#2a2a2a'}
+                onMouseOut={(e) => e.currentTarget.style.backgroundColor = isSelected ? '#2a2a2a' : 'transparent'}
+              >
+                <span>{currency}</span>
+                {isSelected && <span style={{ color: '#00e7ff' }}>✓</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Settings Modal */}
       {showSettings && (
