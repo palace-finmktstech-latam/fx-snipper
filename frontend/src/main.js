@@ -25,7 +25,7 @@ function createWindow() {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': ["default-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: file:; img-src 'self' blob: data: file:; font-src 'self' data: file:; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:5001 file:*"],
+        'Content-Security-Policy': ["default-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: file:; img-src 'self' blob: data: file:; font-src 'self' data: file:; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:5008 file:*"],
         'Access-Control-Allow-Origin': ['*']
       }
     });

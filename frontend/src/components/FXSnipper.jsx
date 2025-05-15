@@ -1,22 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import Settings from './Settings';
-import './SwapSnipper.css';
+import './FXSnipper.css';
 
-const SwapSnipper = () => {
+const FXSnipper = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [tradeInfo, setTradeInfo] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [myEntity, setMyEntity] = useState('');
   const [pastedContent, setPastedContent] = useState(null);
   const [isHovered, setIsHovered] = useState(false);
-  const [isPayingTableExpanded, setIsPayingTableExpanded] = useState(false);
-  const [isReceivingTableExpanded, setIsReceivingTableExpanded] = useState(false);
   const [error, setError] = useState(null);
   const [tradeSentToMurex, setTradeSentToMurex] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [showCurrencyMenu, setShowCurrencyMenu] = useState({
     visible: false,
-    legNumber: null,
+    currencyNumber: null,
     position: { top: 0, left: 0 }
   });
 
@@ -37,12 +35,16 @@ const SwapSnipper = () => {
   }, [pastedContent]);
 
   useEffect(() => {
+    console.log('tradeInfo updated:', tradeInfo);
+  }, [tradeInfo]);
+
+  useEffect(() => {
     if (showCurrencyMenu.visible) {
       const handleClickOutside = (event) => {
         // Check if the click is outside the currency menu
         const menu = document.querySelector('.currency-menu');
         if (menu && !menu.contains(event.target)) {
-          setShowCurrencyMenu({ visible: false, legNumber: null, position: { top: 0, left: 0 } });
+          setShowCurrencyMenu({ visible: false, currencyNumber: null, position: { top: 0, left: 0 } });
         }
       };
       
@@ -66,7 +68,7 @@ const SwapSnipper = () => {
         person_company_pairs: storedPairs ? JSON.parse(storedPairs) : []
       };
 
-      const response = await fetch('http://localhost:5001/api/process-swap', {
+      const response = await fetch('http://localhost:5008/api/process-fx', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -79,10 +81,12 @@ const SwapSnipper = () => {
       }
 
       const data = await response.json();
+      
+      console.log(data);
       setTradeInfo(data);
     } catch (err) {
-      setError('Failed to process swap: ' + err.message);
-      console.error('Error processing swap:', err);
+      setError('Failed to process trade: ' + err.message);
+      console.error('Error processing trade:', err);
     } finally {
       setIsLoading(false);
     }
@@ -123,22 +127,27 @@ const SwapSnipper = () => {
     }
   };
 
-  const handleTermClick = (type, value, legNumber, event) => {
+  const handleTermClick = (type, value, currencyNumber, event) => {
     console.log(`Clicked on ${type}: ${value}`);
     
     switch (type) {
       case 'action':
-        if (value === 'pays' || value === 'receives') {
+        console.log(`Action value: "${value}", checking against 'buys' and 'sells'`);
+        if (value === 'buys' || value === 'sells') {
+          console.log('Calling swapTradeEntities');
           swapTradeEntities();
         }
         break;
       case 'rate':
+        // For FX, this could open a rate editor in the future
+        alert(`You clicked on rate: ${value}`);
+        break;
       case 'currency':
         // Position the menu near the clicked element
         const rect = event.currentTarget.getBoundingClientRect();
         setShowCurrencyMenu({
           visible: true,
-          legNumber,
+          currencyNumber,
           position: { 
             top: rect.bottom + window.scrollY, 
             left: rect.left + window.scrollX 
@@ -146,207 +155,133 @@ const SwapSnipper = () => {
         });
         break;
       case 'amount':
-        // Future implementations for other term types
-        alert(`You clicked on ${type}: ${value}`);
+        // Future implementation for amount editing
+        alert(`You clicked on amount: ${value}`);
         break;
       default:
         break;
     }
   };
 
-  const getCashflowData = () => {
-    if (!tradeInfo || !tradeInfo.legs) return [];
-
-    return tradeInfo.legs.flatMap((leg) =>
-      leg.cashflows.map((flow) => ({
-        legNumber: leg.legNumber,
-        startDate: flow.startDate,
-        endDate: flow.endDate,
-        rate: flow.rate,
-        spread: flow.spread,
-        remainingCapital: flow.remainingCapital,
-        amortization: flow.amortization,
-        interest: flow.interest,
-      }))
-    );
-  };
-
   const swapTradeEntities = () => {
-    if (!tradeInfo || !tradeInfo.tradeInfo || !tradeInfo.legs) return;
+    if (!tradeInfo || !tradeInfo.TradeSummary) return;
     
     // Create a deep copy to avoid mutation issues
     const newTradeInfo = JSON.parse(JSON.stringify(tradeInfo));
     
-    // Swap payers in trade info
-    const { leg1Payer, leg2Payer } = newTradeInfo.tradeInfo;
-    newTradeInfo.tradeInfo.leg1Payer = leg2Payer;
-    newTradeInfo.tradeInfo.leg2Payer = leg1Payer;
+    // For FX trades, swapping entities means changing the Direction
+    const { Direction } = newTradeInfo.TradeSummary;
     
-    // Swap payers in legs
-    if (newTradeInfo.legs.length >= 2) {
-      const leg1Payer = newTradeInfo.legs[0].payer;
-      newTradeInfo.legs[0].payer = newTradeInfo.legs[1].payer;
-      newTradeInfo.legs[1].payer = leg1Payer;
-    }
     
-    // Swap leg conventions in trade info
-    const { 
-      leg1BusinessDayConvention, 
-      leg1DayCountConvention,
-      leg2BusinessDayConvention,
-      leg2DayCountConvention
-    } = newTradeInfo.tradeInfo;
-
-    newTradeInfo.tradeInfo.leg1BusinessDayConvention = leg2BusinessDayConvention;
-    newTradeInfo.tradeInfo.leg1DayCountConvention = leg2DayCountConvention;
-    newTradeInfo.tradeInfo.leg2BusinessDayConvention = leg1BusinessDayConvention;
-    newTradeInfo.tradeInfo.leg2DayCountConvention = leg1DayCountConvention;
-
+    // Reverse the direction - fixed the comparison
+    newTradeInfo.TradeSummary.Direction = Direction.toLowerCase() === "sell" ? "Buy" : "Sell";
+    
     // Update the state
     setTradeInfo(newTradeInfo);
   };
 
   // Handle currency selection
   const handleCurrencySelect = (currency, event) => {
-    if (!tradeInfo || !showCurrencyMenu.legNumber) return;
+    if (!tradeInfo || !showCurrencyMenu.currencyNumber) return;
     
     // Stop propagation to prevent the menu from closing immediately
     event.stopPropagation();
     
     const newTradeInfo = JSON.parse(JSON.stringify(tradeInfo));
-    const legKey = `leg${showCurrencyMenu.legNumber}Currency`;
-    const oldCurrency = newTradeInfo.tradeInfo[legKey];
+    const currencyKey = showCurrencyMenu.currencyNumber === 1 ? 'Currency 1' : 'Currency 2';
     
-    // Update in tradeInfo
-    newTradeInfo.tradeInfo[legKey] = currency;
+    // Update the currency in TradeSummary
+    newTradeInfo.TradeSummary[currencyKey] = currency;
     
-    // Update in legs array
-    const legIndex = showCurrencyMenu.legNumber - 1;
-    if (newTradeInfo.legs[legIndex]) {
-      newTradeInfo.legs[legIndex].currency = currency;
-      
-      // Update cashflows if needed
-      newTradeInfo.legs[legIndex].cashflows.forEach(cashflow => {
-        // Any currency-specific calculations would go here
-        // For example, you might need to update rates or amounts based on currency
-      });
-    }
-    
-    // Set state and close menu
     setTradeInfo(newTradeInfo);
     
     // Use setTimeout to allow the click event to complete before hiding menu
     setTimeout(() => {
-      setShowCurrencyMenu({ visible: false, legNumber: null, position: { top: 0, left: 0 } });
+      setShowCurrencyMenu({ visible: false, currencyNumber: null, position: { top: 0, left: 0 } });
     }, 50);
   };
 
-  const columnDefs = [
-    { headerName: 'Leg', field: 'legNumber', sortable: true, width: 80 },
-    { headerName: 'Start Date', field: 'startDate', sortable: true, filter: true, width: 120 },
-    { headerName: 'End Date', field: 'endDate', sortable: true, filter: true, width: 120 },
-    { headerName: 'Rate', field: 'rate', sortable: true, filter: true, width: 100 },
-    { headerName: 'Spread', field: 'spread', sortable: true, filter: true, width: 100 },
-    {
-      headerName: 'Remaining Capital',
-      field: 'remainingCapital',
-      sortable: true,
-      filter: true,
-      width: 150,
-      valueFormatter: (params) => params.value ? params.value.toLocaleString() : '',
-    },
-    {
-      headerName: 'Amortization',
-      field: 'amortization',
-      sortable: true,
-      filter: true,
-      width: 120,
-      valueFormatter: (params) => params.value ? params.value.toLocaleString() : '',
-    },
-    {
-      headerName: 'Interest',
-      field: 'interest',
-      sortable: true,
-      filter: true,
-      width: 120,
-      valueFormatter: (params) => params.value ? params.value.toLocaleString() : '',
-    },
-  ];
-
   const getTradeDetailsAsProse = () => {
-    if (!tradeInfo || !tradeInfo.tradeInfo || !myEntity) return '';
-  
+    if (!tradeInfo || !tradeInfo.TradeSummary || !myEntity) return '';
+
     const {
-      leg1Rate,
-      leg1Payer,
-      leg1Currency,
-      leg1NotionalAmount,
-      leg2Rate,
-      leg2Payer,
-      leg2Currency,
-      leg2NotionalAmount,
-    } = tradeInfo.tradeInfo;
-  
+      "Currency 1": Currency1,
+      "Currency 2": Currency2,
+      Direction,
+      "Notional Amount": notionalAmount,
+      Maturity,
+      "Price Maker": priceMaker,
+      "Price Taker": priceTaker,
+      Prices,
+      "Trade Date": tradeDate,
+    } = tradeInfo.TradeSummary;
+
     // Helper function to create clickable elements
-    const makeClickable = (term, value, type, legNumber = null) => (
+    const makeClickable = (term, value, type, currencyNumber = null) => (
       <span 
-        onClick={(e) => handleTermClick(type, value, legNumber, e)}
+        onClick={(e) => handleTermClick(type, value, currencyNumber, e)}
         style={{
           cursor: 'pointer',
           //textDecoration: 'underline',
           //color: '#00e7ff'
         }}
       >
-        {type === 'rate' && !isNaN(value) ? `${value}%` : value}
+        {value}
       </span>
     );
-  
-    if (myEntity === leg1Payer) {
-      return (
-        <>
-          <strong>{myEntity}</strong> <strong>{makeClickable('pays', 'pays', 'action')}</strong> {makeClickable(leg1Rate, leg1Rate, 'rate', 1)} on {makeClickable(leg1Currency, leg1Currency, 'currency', 1)} {makeClickable(leg1NotionalAmount, leg1NotionalAmount.toLocaleString(), 'amount', 1)}
-          {' '}and <strong>{makeClickable('receives', 'receives', 'action')}</strong> {makeClickable(leg2Rate, leg2Rate, 'rate', 2)} on {makeClickable(leg2Currency, leg2Currency, 'currency', 2)} {makeClickable(leg1NotionalAmount, leg1NotionalAmount.toLocaleString(), 'amount', 2)} from <strong>{leg2Payer}</strong>.
-        </>
-      );
-    }
-  
-    if (myEntity === leg2Payer) {
-      return (
-        <>
-          <strong>{myEntity}</strong> <strong>{makeClickable('pays', 'pays', 'action')}</strong> {makeClickable(leg2Rate, leg2Rate, 'rate', 2)} on {makeClickable(leg2Currency, leg2Currency, 'currency', 2)} {makeClickable(leg2NotionalAmount, leg2NotionalAmount.toLocaleString(), 'amount', 2)}
-          {' '}<strong>and {makeClickable('receives', 'receives', 'action')}</strong> {makeClickable(leg1Rate, leg1Rate, 'rate', 1)} on {makeClickable(leg1Currency, leg1Currency, 'currency', 1)} {makeClickable(leg2NotionalAmount, leg2NotionalAmount.toLocaleString(), 'amount', 1)} from <strong>{leg1Payer}</strong>.
-        </>
-      );
-    }
-  
-    return 'Entity does not match either payer in the trade.';
-  };
 
-  const getCashflowTables = () => {
-    if (!tradeInfo || !tradeInfo.legs) {
-      return { myEntityFlows: [], otherEntityFlows: [], myEntityLabel: '', otherEntityLabel: '' };
-    }
-
-    let myEntityFlows = [];
-    let otherEntityFlows = [];
-    let myEntityLabel = '';
-    let otherEntityLabel = '';
-
-    const payingLeg = tradeInfo.legs.find(leg => leg.payer === myEntity);
-    const receivingLeg = tradeInfo.legs.find(leg => leg.payer !== myEntity);
-
-    if (payingLeg) {
-      myEntityFlows = payingLeg.cashflows;
-      otherEntityFlows = receivingLeg.cashflows;
+    // Determine if myEntity is the price maker or price taker
+    const isMyEntityPriceMaker = myEntity === priceMaker.Company;
+    const counterparty = isMyEntityPriceMaker ? priceTaker.Company : priceMaker.Company;
+    
+    // Calculate the amount in Currency2 based on the forward price
+    const forwardPrice = Prices["Forward Price"] !== "Not Mentioned" ? Prices["Forward Price"] : Prices["Spot Price"];
+    const currency2Amount = notionalAmount * forwardPrice;
+    
+    // Determine the correct direction and currencies based on who is who
+    if (isMyEntityPriceMaker) {
+      // Price maker perspective
+      if (Direction === "Sell") {
+        // Price maker is selling Currency1, buying Currency2
+        return (
+          <>
+            <strong>{myEntity}</strong> <strong>{makeClickable('sells', 'sells', 'action')}</strong> {makeClickable(Currency1, Currency1, 'currency', 1)} {makeClickable(notionalAmount, notionalAmount.toLocaleString(), 'amount', 1)}
+            {' '}and <strong>{makeClickable('buys', 'buys', 'action')}</strong> {makeClickable(Currency2, Currency2, 'currency', 2)} {makeClickable(currency2Amount, currency2Amount.toLocaleString(), 'amount', 2)} at {makeClickable(forwardPrice, forwardPrice, 'rate')} with <strong>{counterparty}</strong>
+            {Maturity !== "Not Mentioned" && ` on ${Maturity}`}.
+          </>
+        );
+      } else {
+        // Price maker is buying Currency1, selling Currency2
+        return (
+          <>
+            <strong>{myEntity}</strong> <strong>{makeClickable('buys', 'buys', 'action')}</strong> {makeClickable(Currency1, Currency1, 'currency', 1)} {makeClickable(notionalAmount, notionalAmount.toLocaleString(), 'amount', 1)}
+            {' '}and <strong>{makeClickable('sells', 'sells', 'action')}</strong> {makeClickable(Currency2, Currency2, 'currency', 2)} {makeClickable(currency2Amount, currency2Amount.toLocaleString(), 'amount', 2)} at {makeClickable(forwardPrice, forwardPrice, 'rate')} with <strong>{counterparty}</strong>
+            {Maturity !== "Not Mentioned" && ` on ${Maturity}`}.
+          </>
+        );
+      }
     } else {
-      myEntityFlows = receivingLeg.cashflows;
-      otherEntityFlows = payingLeg.cashflows;
+      // Price taker perspective - opposite of price maker's direction
+      if (Direction === "Sell") {
+        // Price taker is buying Currency1, selling Currency2
+        return (
+          <>
+            <strong>{myEntity}</strong> <strong>{makeClickable('buys', 'buys', 'action')}</strong> {makeClickable(Currency1, Currency1, 'currency', 1)} {makeClickable(notionalAmount, notionalAmount.toLocaleString(), 'amount', 1)}
+            {' '}and <strong>{makeClickable('sells', 'sells', 'action')}</strong> {makeClickable(Currency2, Currency2, 'currency', 2)} {makeClickable(currency2Amount, currency2Amount.toLocaleString(), 'amount', 2)} at {makeClickable(forwardPrice, forwardPrice, 'rate')} with <strong>{counterparty}</strong>
+            {Maturity !== "Not Mentioned" && ` settling on ${Maturity}`}.
+          </>
+        );
+      } else {
+        // Price taker is selling Currency1, buying Currency2
+        return (
+          <>
+            <strong>{myEntity}</strong> <strong>{makeClickable('sells', 'sells', 'action')}</strong> {makeClickable(Currency1, Currency1, 'currency', 1)} {makeClickable(notionalAmount, notionalAmount.toLocaleString(), 'amount', 1)}
+            {' '}and <strong>{makeClickable('buys', 'buys', 'action')}</strong> {makeClickable(Currency2, Currency2, 'currency', 2)} {makeClickable(currency2Amount, currency2Amount.toLocaleString(), 'amount', 2)} at {makeClickable(forwardPrice, forwardPrice, 'rate')} with <strong>{counterparty}</strong>
+            {Maturity !== "Not Mentioned" && ` settling on ${Maturity}`}.
+          </>
+        );
+      }
     }
-
-    myEntityLabel = `${myEntity} pays:`;
-    otherEntityLabel = `${myEntity} receives:`;
-
-    return { myEntityFlows, otherEntityFlows, myEntityLabel, otherEntityLabel };
   };
 
   const downloadJSON = () => {
@@ -357,36 +292,6 @@ const SwapSnipper = () => {
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
-  };
-
-  const headerStyle = {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderBottom: '1px solid #00e7ff',
-    paddingBottom: '5px',
-    fontSize: '10px'
-  };
-
-  const toggleButtonStyle = {
-    background: 'none',
-    border: 'none',
-    color: '#00e7ff',
-    cursor: 'pointer',
-    padding: '0 5px',
-    fontSize: '14px'
-  };
-
-  // Helper to format table cells based on leg type and content
-  const formatTableCell = (value, cellType, isFloatingLeg) => {
-    if (cellType === 'interest' && isFloatingLeg) {
-      return value; // Will show "TBD" from backend for floating legs
-    } else if (cellType === 'rate') {
-      return isNaN(value) ? value : `${value}%`;
-    } else if (typeof value === 'number') {
-      return value.toLocaleString();
-    }
-    return value;
   };
 
   return (
@@ -599,7 +504,7 @@ const SwapSnipper = () => {
       {/* Loading Indicator */}
       {isLoading && (
         <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '12px', color: '#00e7ff' }}>
-          Processing swap...
+          Processing FX trade...
         </div>
       )}
 
@@ -614,7 +519,11 @@ const SwapSnipper = () => {
           <>
             <div style={{ marginTop: '20px', color: 'white', fontSize: '10px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                <h3 style={{ margin: 0, fontSize: '14px', color: 'white' }}>Detected Trade</h3>
+                <h3 style={{ margin: 0, fontSize: '14px', color: 'white' }}>
+                  {tradeInfo.TradeSummary.Prices["Forward Price"] && tradeInfo.TradeSummary.Prices["Forward Price"] !== "Not Mentioned" 
+                    ? "Detected FX Forward Trade" 
+                    : "Detected FX Spot Trade"}
+                </h3>
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <span
                     style={{
@@ -672,84 +581,79 @@ const SwapSnipper = () => {
               </div>
             </div>
 
-            {/* Cashflow Tables */}
-            {myEntity && (
-              <>
-                {[
-                  { 
-                    label: getCashflowTables().myEntityLabel, 
-                    flows: getCashflowTables().myEntityFlows,
-                    isExpanded: isPayingTableExpanded,
-                    setExpanded: setIsPayingTableExpanded,
-                    isFloating: tradeInfo.legs.find(leg => leg.payer === myEntity)?.isFloating || false
-                  },
-                  { 
-                    label: getCashflowTables().otherEntityLabel, 
-                    flows: getCashflowTables().otherEntityFlows,
-                    isExpanded: isReceivingTableExpanded,
-                    setExpanded: setIsReceivingTableExpanded,
-                    isFloating: tradeInfo.legs.find(leg => leg.payer !== myEntity)?.isFloating || false
+            {/* Trade Details Section - New for FX trades */}
+            <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#1a1a1a', borderRadius: '4px', border: '1px solid #2d2d2d' }}>
+              <h4 style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#00e7ff' }}>Trade Details</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '10px' }}>
+                <div>
+                  <strong>Counterparty:</strong> {myEntity === tradeInfo.TradeSummary["Price Maker"].Company 
+                    ? tradeInfo.TradeSummary["Price Taker"].Company 
+                    : tradeInfo.TradeSummary["Price Maker"].Company}
+                </div>
+                <div>
+                  <strong>Trade Date:</strong> {tradeInfo.TradeSummary["Trade Date"]}
+                </div>
+                <div>
+                  <strong>Maturity Date:</strong> {tradeInfo.TradeSummary.Maturity}
+                </div>
+                {(() => {
+                  // Determine buy/sell currencies from myEntity perspective
+                  const isMyEntityPriceMaker = myEntity === tradeInfo.TradeSummary["Price Maker"].Company;
+                  const { Direction, "Currency 1": Currency1, "Currency 2": Currency2, "Notional Amount": notionalAmount } = tradeInfo.TradeSummary;
+                  const currency2Amount = notionalAmount * tradeInfo.TradeSummary.Prices["Forward Price"];
+                  
+                  let buyCurrency, buyCurrencyAmount, sellCurrency, sellCurrencyAmount;
+                  
+                  if (isMyEntityPriceMaker) {
+                    if (Direction === "Sell") {
+                      sellCurrency = Currency1;
+                      sellCurrencyAmount = notionalAmount;
+                      buyCurrency = Currency2;
+                      buyCurrencyAmount = currency2Amount;
+                    } else {
+                      buyCurrency = Currency1;
+                      buyCurrencyAmount = notionalAmount;
+                      sellCurrency = Currency2;
+                      sellCurrencyAmount = currency2Amount;
+                    }
+                  } else {
+                    // Price taker has opposite direction
+                    if (Direction === "Sell") {
+                      buyCurrency = Currency1;
+                      buyCurrencyAmount = notionalAmount;
+                      sellCurrency = Currency2;
+                      sellCurrencyAmount = currency2Amount;
+                    } else {
+                      sellCurrency = Currency1;
+                      sellCurrencyAmount = notionalAmount;
+                      buyCurrency = Currency2;
+                      buyCurrencyAmount = currency2Amount;
+                    }
                   }
-                ].map((tableData, index) => {
+                  
                   return (
-                    <div key={index} style={{ marginTop: '20px' }}>
-                      <div style={headerStyle}>
-                        <h4 style={{ margin: 0 }}>{tableData.label}</h4>
-                        <button 
-                          onClick={() => tableData.setExpanded(!tableData.isExpanded)}
-                          style={toggleButtonStyle}
-                        >
-                          {tableData.isExpanded ? '−' : '+'}
-                        </button>
+                    <>
+                      <div>
+                        <strong>We buy:</strong> {buyCurrency} {buyCurrencyAmount.toLocaleString()}
                       </div>
-                      {tableData.isExpanded && (
-                        <>
-                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '8px', marginBottom: '10px' }}>
-                            <thead>
-                              <tr style={{ borderBottom: '1px solid #00e7ff' }}>
-                                {['Start Date', 'End Date', 'Rate', 'Spread', 'Remaining K', 'Amortization', 'Interest'].map(
-                                  (header, idx) => (
-                                    <th key={idx} style={{ textAlign: 'left', padding: '3px' }}>
-                                      {header}
-                                    </th>
-                                  )
-                                )}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {tableData.flows.map((flow, idx) => (
-                                <tr key={idx} style={{ borderBottom: '1px solid #333' }}>
-                                  <td style={{ padding: '3px' }}>{flow.startDate}</td>
-                                  <td style={{ padding: '3px' }}>{flow.endDate}</td>
-                                  <td style={{ padding: '3px' }}>{formatTableCell(flow.rate, 'rate', tableData.isFloating)}</td>
-                                  <td style={{ padding: '3px' }}>{flow.spread}</td>
-                                  <td style={{ padding: '3px' }}>{flow.remainingCapital.toLocaleString()}</td>
-                                  <td style={{ padding: '3px' }}>{flow.amortization.toLocaleString()}</td>
-                                  <td style={{ padding: '3px' }}>{formatTableCell(flow.interest, 'interest', tableData.isFloating)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                          <div style={{ fontSize: '8px', color: '#888', marginBottom: '20px' }}>
-                            {index === 0 ? (
-                              <>
-                                Business Day Convention: {tradeInfo.tradeInfo.leg1BusinessDayConvention} • 
-                                Day Count Convention: {tradeInfo.tradeInfo.leg1DayCountConvention}
-                              </>
-                            ) : (
-                              <>
-                                Business Day Convention: {tradeInfo.tradeInfo.leg2BusinessDayConvention} • 
-                                Day Count Convention: {tradeInfo.tradeInfo.leg2DayCountConvention}
-                              </>
-                            )}
-                          </div>
-                        </>
+                      <div>
+                        <strong>We sell:</strong> {sellCurrency} {sellCurrencyAmount.toLocaleString()}
+                      </div>
+                      <div>
+                        <strong>Spot Price:</strong> {tradeInfo.TradeSummary.Prices["Spot Price"] !== "Not Mentioned" 
+                          ? tradeInfo.TradeSummary.Prices["Spot Price"] 
+                          : ""}
+                      </div>
+                      {tradeInfo.TradeSummary.Prices["Forward Price"] && tradeInfo.TradeSummary.Prices["Forward Price"] !== "Not Mentioned" && (
+                        <div>
+                          <strong>Forward Price:</strong> {tradeInfo.TradeSummary.Prices["Forward Price"]}
+                        </div>
                       )}
-                    </div>
+                    </>
                   );
-                })}
-              </>
-            )}
+                })()}
+              </div>
+            </div>
           </>
         )}
       </div>
@@ -816,7 +720,8 @@ const SwapSnipper = () => {
           }}
         >
           {currencyOptions.map((currency) => {
-            const isSelected = tradeInfo.tradeInfo[`leg${showCurrencyMenu.legNumber}Currency`] === currency;
+            const currencyKey = showCurrencyMenu.currencyNumber === 1 ? 'Currency 1' : 'Currency 2';
+            const isSelected = tradeInfo.TradeSummary[currencyKey] === currency;
             return (
               <div
                 key={currency}
@@ -863,4 +768,4 @@ const SwapSnipper = () => {
   );
 };
 
-export default SwapSnipper;
+export default FXSnipper;

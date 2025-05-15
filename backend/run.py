@@ -8,7 +8,7 @@ from app.config import settings
 
 if __name__ == "__main__":
     
-    parser = argparse.ArgumentParser(description='Start the Swap Snipper application.')
+    parser = argparse.ArgumentParser(description='Start the FX Snipper application.')
     
     # Add only the two required arguments
     parser.add_argument('--entity', required=True)

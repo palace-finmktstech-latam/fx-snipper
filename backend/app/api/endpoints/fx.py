@@ -22,7 +22,7 @@ class PersonCompanyPair(BaseModel):
     person: str
     company: str
 
-class ProcessSwapRequest(BaseModel):
+class ProcessFXRequest(BaseModel):
     input_type: str
     input_image: Optional[str] = None
     input_text: Optional[str] = None
@@ -31,8 +31,8 @@ class ProcessSwapRequest(BaseModel):
     user_entity: str
     person_company_pairs: List[PersonCompanyPair] = []
 
-@router.post("/process-swap")
-async def process_swap(request: ProcessSwapRequest):
+@router.post("/process-fx")
+async def process_fx(request: ProcessFXRequest):
     try:
         logger.info(
             "Received swap processing request",
@@ -43,8 +43,10 @@ async def process_swap(request: ProcessSwapRequest):
                 "input_type": request.input_type,
                 "ai_provider": request.ai_provider
             },
-            tags=["api", "process-swap", "request"]
+            tags=["api", "process-fx", "request"]
         )
+
+        print(f"Received request: {request}")
         
         # Update AI service with user info
         ai_service.update_user_info(request.user_name, request.user_entity)
@@ -73,6 +75,7 @@ async def process_swap(request: ProcessSwapRequest):
                 user_id=request.user_name,
                 tags=["api", "image", "extraction"]
             )
+            
             extracted_text = ai_service.extract_text(request.input_image)
                 
         elif request.input_type == 'text':
@@ -109,6 +112,8 @@ async def process_swap(request: ProcessSwapRequest):
             )
             raise HTTPException(status_code=400, detail=error_msg)
         
+        print(f"Extracted text: {extracted_text}")
+
         # Process text with AI
         logger.info(
             "Processing text with AI",
@@ -135,29 +140,29 @@ async def process_swap(request: ProcessSwapRequest):
             raise HTTPException(status_code=500, detail=error_msg)
 
         # Transform and calculate cashflows
-        transformer = SwapParamTransformer()
-        intermediate_params = transformer.transform_json(trade_json)
-        params = load_ql_parameters(intermediate_params)
-        leg1, leg2 = create_swap_cashflows(**params)
-        output_data = transform_output(trade_json, leg1, leg2)
+        # COMMENT transformer = SwapParamTransformer()
+        # COMMENT intermediate_params = transformer.transform_json(trade_json)
+        # COMMENT params = load_ql_parameters(intermediate_params)
+        # COMMENT leg1, leg2 = create_swap_cashflows(**params)
+        # COMMENT output_data = transform_output(trade_json, leg1, leg2)
         
         # Log success
         logger.info(
-            "Swap processing completed successfully",
+            "FX processing completed successfully",
             event_type=EventType.TRANSACTION,
             entity=my_entity,
             user_id=request.user_name,
-            data={"output_data": output_data},
-            tags=["api", "process-swap", "success"]
+            data={"trade_json": trade_json},  # Changed to use trade_json since output_data is commented out
+            tags=["api", "process-fx", "success"]
         )
         
-        return output_data
+        return trade_json  # Return trade_json since output_data is commented out
         
     except Exception as e:
         if not isinstance(e, HTTPException):
             logger.log_exception(
                 e,
-                message="Unexpected error in process_swap endpoint",
+                message="Unexpected error in process_fx endpoint",
                 level=LogLevel.CRITICAL,
                 tags=["api", "error", "fatal"],
                 entity=my_entity

@@ -189,7 +189,7 @@ class AIService:
         
         # Generate the person-company mapping text
         person_company_text = ""
-        mappings = [f"{pair['person']} works for a company named {pair['company']}"
+        mappings = [f"{pair['person']} who works for a company named {pair['company']}"
                     for pair in self.person_company_pairs]
         person_company_text = "\n        ".join(mappings)
 
@@ -198,22 +198,9 @@ class AIService:
 
         In the extracted text below I am {self.user_name}. I work for a company named {self.user_entity}.
 
-        {person_company_text}
+        My client is{person_company_text}
         
-        I have asked for bid and offer prices for the fixed leg of an Interest Rate Swap.
-        
-        Another part in the conversation has providing me with bid and offer prices for the fixed leg of an Interest Rate Swap, as denoted by two numbers separated by a slash. The other part has accepted a price.
-        
-        Prices quoted and accepted at the end of the chat are far more likely to be correct than those at the beginning.
-
-        Tell me who (person and company name) has provided the bid and offer prices.
-
-        Tell me who (person and company name) has accepted the price and whether it was the bid price or the offer price.
-
-        If the first price (bid) is the accepted one, then the price maker is paying the fixed rate and the price taker is paying the floating rate.
-        If the second price (offer) is the accepted one, then the price taker is paying the fixed rate and the price maker is paying the floating rate.
-
-        Tell me who (person and company name) is paying the fixed rate (and what it is) and who (person and company name) is paying the floating rate. The fixed rate should be stored as if it is a percentage, e.g. 1.25, but do not include the percent sign.
+        I have provided a price for an FX trade (Spot, Forward or FX Swap) as requested by my client.
         
         Prices quoted and accepted at the end of the chat are far more likely to be correct than those at the beginning.
 
@@ -224,37 +211,12 @@ class AIService:
         This could be expressed in the chat as something like 1.5Y (1.5 years) or 18m (1.5 years) or 1Y6M (1.5 years).
         It could also be expressed in the chat as a specific date, usually preceded by the word "vcto", "vencimiento", "mat" or "maturity".
 
-        Tell me the currency of each leg, as an ISO code.
+        Tell me both currencies of the trade, as an ISO code.
 
-        Tell me the notional amount of each leg. This can usually be found at the start of the conversation, as this vital for the quote that is being requested.
+        Tell me the direction of the trade, as a string. This is usually "Buy" or "Sell" and should be stored from my perspective, which is the opposite of the client's perspective.
+
+        Tell me the notional amount, usually of the first currency of the pair of each leg. This can usually be found at the start of the conversation, as this vital for the quote that is being requested.
         There are a number of conventions used to abbreviate amounts here. For example MM represents millions. K represents thousands. Write the full number, do not abbreviate.
-
-        Tell me the cashflow dates of each leg. This should be stored as a concatenated, comma-separated string of all the cashflow dates mentioned in the chat. Make sure you distinguish between the number 1 and the number 7. Do not miss any.
-
-        Tell me the coupon frequency for each leg. This may or may not be explicitly mentioned. If it is not
-        explicitly mentioned, you can try inferring it from the series of cashflow dates if mentioned (e.g., if dates are spaced by one year, set it to "Annually").
-        Other expected values might be one of the following:
-        "Monthly," "Quarterly," "Semi-Annually," "Annually," or "One-Off."
-        If you cannot tie a coupon frequency to a specific leg, default to "Semi-Annually".
-
-        Tell me the cashflow percentages of each leg. This should be stored as a concatenated, comma-separated string of all the cashflow percentages (summing 100), usually next to the cashflow dates in a table forma.
-
-        Tell me the Date Basis for each leg. This is likely one of the following:
-        "Actual/360," "Actual/365," or "30/360."
-        This could be referred to as "Pata fija" (Fixed Leg) or "Pata flotante" (Floating Leg) and then the date basis after that.
-        If you cannot tie a Date Basis to a specific leg, default to "Actual/360".
-
-        Tell me the Business Day Adjustment for each leg. This is likely one of the following:
-        "No Adjustment" (often written in the source chat as Unadjusted), "Modified Following," "Following," "Modified Preceding," or "Preceding."
-        If you cannot tie a Business Date Adjustment to a specific leg, default to "Modified Following."
-
-        Also, tell me what the floating rate reference is in this chat. Some possible values and how they should be represented in the output are as follows:
-        "UFCAM" → "ICP-CLP"
-        "CLPCAM" → "ICP-CLP"
-        "CLF/CAM" → "ICP-CLP"
-        "SPC" → "ICP-CLP"
-        "SOFR" → "USD-SOFR-RATE"
-        "SOFR Rate" → "USD-SOFR-RATE" (If another variable rate reference is present, extract it as-is for now.)
 
         Here is the extracted text:
 
@@ -263,9 +225,13 @@ class AIService:
         Then structure the extracted information into JSON with the following schema:
         {{
             "TradeSummary": {{
+                "Currency 1": "String",
+                "Currency 2": "String",
+                "Direction": "String (Buy or Sell)",
                 "Trade Date": "Today's Date (DD-MM-YYYY)",
-                "Start Lag": "Numeric Value",
-                "Maturity": "String",
+                "Start Lag": "Numeric Value (integer)",
+                "Maturity": "Date (DD-MM-YYYY)",
+                "Notional Amount": "Numeric Value",
                 "Price Maker": {{
                     "Name": "String",
                     "Company": "String"
@@ -275,36 +241,8 @@ class AIService:
                     "Company": "String"
                 }},
                 "Prices": {{
-                    "Bid": "Numeric Value",
-                    "Offer": "Numeric Value"
-                }},
-                "Accepted Price": "Numeric Value",
-                "Accepted Side": "String (Bid or Offer)",
-                "Leg 1 Payer": {{
-                    "Leg Type": "String (Fixed or Floating)",
-                    "Name": "String",
-                    "Company": "String",
-                    "Rate": "String (If this is the fixed leg, store as the percentage, without the percent sign. If this is the floating leg, store the floating rate reference string).",
-                    "Leg Currency": "ISO Code",
-                    "Notional Amount": "Numeric Value",
-                    "Date Basis": "String",
-                    "Business Date Adjustment": "String",
-                    "Coupon Frequency": "String",
-                    "Cashflow Dates": "String",
-                    "Cashflow Percentages": "String"
-                }},
-                "Leg 2 Payer": {{
-                    "Leg Type": "String (Fixed or Floating)",
-                    "Name": "String",
-                    "Company": "String",
-                    "Rate": "String (If this is the fixed leg, store as the percentage, without the percent sign. If this is the floating leg, store the floating rate reference string).",
-                    "Leg Currency": "ISO Code",
-                    "Notional Amount": "Numeric Value",
-                    "Date Basis": "String",
-                    "Business Date Adjustment": "String",
-                    "Coupon Frequency": "String",
-                    "Cashflow Dates": "String",
-                    "Cashflow Percentages": "String"
+                    "Spot Price": "Numeric Value",
+                    "Forward Price": "Numeric Value"
                 }}
             }}
         }}
@@ -321,11 +259,6 @@ class AIService:
         as a result of the conversation.
 
         If you are unsure on any data point, please leave it blank. Do not guess.
-
-        Before finishing, double check which part is paying which leg. 
-        Remember, if the first price (bid) is the accepted one, then the price maker is paying the fixed rate and the price taker is paying the floating rate.
-        If the second price (offer) is the accepted one, then the price taker is paying the fixed rate and the price maker is paying the floating rate.
-        If you realise you've made a mistake, switch them around.
 
         Also, before finishing, remove any markdown in the JSON output, such as ```json or ```
 
@@ -367,7 +300,7 @@ class AIService:
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are an expert in interpreting Bloomberg chat messages between Swap traders. You will study chat snippets and extract the key trade details from the chat, in JSON format. Do not put Markdown around the extracted JSON. Only provide the JSON itself, I don't want any complementary text at all."
+                            "content": "You are an expert in interpreting Bloomberg chat messages between FX traders. You will study chat snippets and extract the key trade details from the chat, in JSON format. Do not put Markdown around the extracted JSON. Only provide the JSON itself, I don't want any complementary text at all."
                         },
                         {
                             "role": "user",
@@ -423,7 +356,7 @@ class AIService:
 
                 response = self.anthropic_client.messages.create(
                     model="claude-3-7-sonnet-20250219",
-                    system="You are an expert in interpreting Bloomberg chat messages between Swap traders. You will study chat snippets and extract the key trade details from the chat, in JSON format. Do not put Markdown around the extracted JSON. Only provide the JSON itself, I don't want any complementary text at all.",
+                    system="You are an expert in interpreting Bloomberg chat messages between FX traders. You will study chat snippets and extract the key trade details from the chat, in JSON format. Do not put Markdown around the extracted JSON. Only provide the JSON itself, I don't want any complementary text at all.",
                     messages=[{
                         "role": "user",
                         "content": EXTRACTION_PROMPT
@@ -487,7 +420,7 @@ class AIService:
                     model = gemini.GenerativeModel(
                         model_name="gemini-1.5-pro",
                         generation_config=generation_config,
-                        system_instruction="You are an expert in interpreting Bloomberg chat messages between Swap traders. You will study chat snippets and extract the key trade details from the chat, in JSON format. Do not put Markdown around the extracted JSON. Only provide the JSON itself, I don't want any complementary text at all, or markdown."
+                        system_instruction="You are an expert in interpreting Bloomberg chat messages between FX traders. You will study chat snippets and extract the key trade details from the chat, in JSON format. Do not put Markdown around the extracted JSON. Only provide the JSON itself, I don't want any complementary text at all, or markdown."
                     )
                     
                     response = model.generate_content(EXTRACTION_PROMPT)

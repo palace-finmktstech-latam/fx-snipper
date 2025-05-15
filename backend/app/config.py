@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Settings:
-    API_PORT = int(os.getenv("API_PORT", 5001))
+    API_PORT = int(os.getenv("API_PORT", 5008))
     DEBUG = os.getenv("DEBUG", "True").lower() == "true"
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
